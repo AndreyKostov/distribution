@@ -359,11 +359,17 @@ func (suite *DriverSuite) TestReadStreamWithOffset(c *check.C) {
 
 // TestContinueStreamAppend tests that a stream write can be appended to without
 // corrupting the data.
-func (suite *DriverSuite) TestContinueStreamAppend(c *check.C) {
+func (suite *DriverSuite) TestContinueStreamAppendLarge(c *check.C) {
+	suite.testContinueStreamAppend(c, int64(10*1024*1024))
+}
+
+func (suite *DriverSuite) TestContinueStreamAppendSmall(c *check.C) {
+	suite.testContinueStreamAppend(c, int64(32))
+}
+
+func (suite *DriverSuite) testContinueStreamAppend(c *check.C, chunkSize int64) {
 	filename := randomPath(32)
 	defer suite.StorageDriver.Delete(firstPart(filename))
-
-	chunkSize := int64(5 * 1024 * 1024)
 
 	contentsChunk1 := randomContents(chunkSize)
 	contentsChunk2 := randomContents(chunkSize)
@@ -382,9 +388,6 @@ func (suite *DriverSuite) TestContinueStreamAppend(c *check.C) {
 	c.Assert(fi, check.NotNil)
 	c.Assert(fi.Size(), check.Equals, int64(len(contentsChunk1)))
 
-	if fi.Size() > chunkSize {
-		c.Errorf("Offset too large, %d > %d", fi.Size(), chunkSize)
-	}
 	nn, err = suite.StorageDriver.WriteStream(filename, fi.Size(), bytes.NewReader(contentsChunk2))
 	c.Assert(err, check.IsNil)
 	c.Assert(nn, check.Equals, int64(len(contentsChunk2)))
@@ -394,9 +397,15 @@ func (suite *DriverSuite) TestContinueStreamAppend(c *check.C) {
 	c.Assert(fi, check.NotNil)
 	c.Assert(fi.Size(), check.Equals, 2*chunkSize)
 
-	if fi.Size() > 2*chunkSize {
-		c.Errorf("Offset too large, %d > %d", fi.Size(), 2*chunkSize)
-	}
+	// Test re-writing the last chunk
+	nn, err = suite.StorageDriver.WriteStream(filename, fi.Size()-chunkSize, bytes.NewReader(contentsChunk2))
+	c.Assert(err, check.IsNil)
+	c.Assert(nn, check.Equals, int64(len(contentsChunk2)))
+
+	fi, err = suite.StorageDriver.Stat(filename)
+	c.Assert(err, check.IsNil)
+	c.Assert(fi, check.NotNil)
+	c.Assert(fi.Size(), check.Equals, 2*chunkSize)
 
 	nn, err = suite.StorageDriver.WriteStream(filename, fi.Size(), bytes.NewReader(fullContents[fi.Size():]))
 	c.Assert(err, check.IsNil)
